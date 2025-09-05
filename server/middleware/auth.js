@@ -14,7 +14,7 @@ module.exports = function (req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // attach user info from token to request
-    req.user = { id: decoded.id, email: decoded.email };
+    req.user = { id: decoded.id, username: decoded.username };
     next();
   } catch (err) {
     console.error("JWT Error:", err.message);

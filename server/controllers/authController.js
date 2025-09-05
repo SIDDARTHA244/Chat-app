@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 // Helper to generate JWT
 const signToken = (user) => {
   return jwt.sign(
-    { id: user._id, email: user.email },
+    { id: user._id, username: user.username },
     process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -14,17 +14,22 @@ const signToken = (user) => {
 // ================= REGISTER =================
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, avatar } = req.body;
+    const { name, username, email, password, avatar } = req.body;
 
     // Validation
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Please fill all required fields' });
+    if (!username || !email || !password) {
+      return res.status(400).json({ msg: 'Please fill all required fields' });
     }
 
-    // Check if email exists
-    const exist = await User.findOne({ email });
-    if (exist) {
-      return res.status(400).json({ message: 'Email already registered' });
+    // Check if username or email exists
+    const existUsername = await User.findOne({ username });
+    if (existUsername) {
+      return res.status(400).json({ msg: 'Username already taken' });
+    }
+
+    const existEmail = await User.findOne({ email });
+    if (existEmail) {
+      return res.status(400).json({ msg: 'Email already registered' });
     }
 
     // Hash password
@@ -32,53 +37,80 @@ exports.register = async (req, res) => {
     const hash = await bcrypt.hash(password, salt);
 
     // Create user
-    const user = new User({ name, email, password: hash, avatar });
+    const user = new User({ 
+      name: name || username, 
+      username, 
+      email, 
+      password: hash, 
+      avatar: avatar || `https://ui-avatars.com/api/?name=${username}&background=random` 
+    });
     await user.save();
 
     // Sign JWT
     const token = signToken(user);
 
     return res.status(201).json({
-      user: { id: user._id, name: user.name, email: user.email, avatar: user.avatar },
+      user: { 
+        _id: user._id, 
+        name: user.name, 
+        username: user.username,
+        email: user.email, 
+        avatar: user.avatar 
+      },
       token,
     });
   } catch (err) {
     console.error("Register error:", err);
-    return res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
 // ================= LOGIN =================
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { username, email, password } = req.body;
 
     // Validation
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Please provide email and password' });
+    if ((!username && !email) || !password) {
+      return res.status(400).json({ msg: 'Please provide username/email and password' });
     }
 
-    // Check user
-    const user = await User.findOne({ email });
+    // Find user by username or email
+    const query = username ? { username } : { email };
+    const user = await User.findOne(query);
+    
     if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return res.status(400).json({ msg: 'Invalid credentials' });
     }
 
     // Verify password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return res.status(400).json({ msg: 'Invalid credentials' });
     }
+
+    // Update online status
+    await User.findByIdAndUpdate(user._id, { 
+      online: true, 
+      lastSeen: new Date() 
+    });
 
     // Sign JWT
     const token = signToken(user);
 
     return res.json({
-      user: { id: user._id, name: user.name, email: user.email, avatar: user.avatar },
+      user: { 
+        _id: user._id, 
+        name: user.name, 
+        username: user.username,
+        email: user.email, 
+        avatar: user.avatar,
+        online: true
+      },
       token,
     });
   } catch (err) {
     console.error("Login error:", err);
-    return res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
