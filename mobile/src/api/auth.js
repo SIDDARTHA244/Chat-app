@@ -1,53 +1,66 @@
-import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import api from './index';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ⚠️ Set correct backend URL depending on environment
-// - Android Emulator: http://10.0.2.2:5000
-// - iOS Simulator: http://localhost:5000
-// - Real Device (Expo Go): replace with your PC LAN IP, e.g. http://192.168.1.101:5000
-const API_URL = "http://192.168.1.101:5000"; // <-- change this to your actual LAN IP
-
-// Create axios instance
-const api = axios.create({
-  baseURL: API_URL,
-});
-
-// Register user
-export const register = async (data) => {
+export const register = async (name, email, password) => {
   try {
-    const res = await api.post("/auth/register", data);
-    return res.data;
-  } catch (err) {
-    console.error("Register error:", err.response?.data || err.message);
-    throw err;
-  }
-};
-
-// Login user + save token in AsyncStorage
-export const login = async (data) => {
-  try {
-    const res = await api.post("/auth/login", data);
-
-    if (res.data.token) {
-      await AsyncStorage.setItem("token", res.data.token);
-
-      // Attach token for all future requests
-      api.defaults.headers.common["Authorization"] = `Bearer ${res.data.token}`;
+    const response = await api.post('/auth/register', {
+      name: name.trim(),
+      email: email.trim().toLowerCase(), 
+      password
+    });
+    
+    if (response.data.token) {
+      await AsyncStorage.setItem('token', response.data.token);
+      await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
     }
-
-    return res.data; // contains { token, user }
-  } catch (err) {
-    console.error("Login error:", err.response?.data || err.message);
-    throw err;
+    
+    return response.data;
+  } catch (error) {
+    throw error;
   }
 };
 
-// Load token on app startup
-export const setupAuth = async () => {
-  const token = await AsyncStorage.getItem("token");
-  if (token) {
-    api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+export const login = async (email, password) => {
+  try {
+    const response = await api.post('/auth/login', {
+      email: email.trim().toLowerCase(),
+      password
+    });
+    
+    if (response.data.token) {
+      await AsyncStorage.setItem('token', response.data.token);
+      await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
+    }
+    
+    return response.data;
+  } catch (error) {
+    throw error;
   }
 };
 
-export default api;
+export const logout = async () => {
+  try {
+    await AsyncStorage.multiRemove(['token', 'user']);
+  } catch (error) {
+    console.error('Logout error:', error);
+  }
+};
+
+export const getCurrentUser = async () => {
+  try {
+    const userString = await AsyncStorage.getItem('user');
+    return userString ? JSON.parse(userString) : null;
+  } catch (error) {
+    console.error('Get current user error:', error);
+    return null;
+  }
+};
+
+export const getToken = async () => {
+  try {
+    return await AsyncStorage.getItem('token');
+  } catch (error) {
+    console.error('Get token error:', error);
+    return null;
+  }
+};

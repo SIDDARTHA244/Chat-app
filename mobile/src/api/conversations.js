@@ -1,11 +1,32 @@
-import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import api from './index';
 
-const API_URL = "http://localhost:5000";
+export const createOrGetConversation = async (participantId) => {
+  try {
+    const response = await api.post('/conversations/create', {
+      participantId
+    });
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
 
-export const getMessages = async (conversationId) => {
-  const token = await AsyncStorage.getItem("token");
-  return axios.get(`${API_URL}/conversations/${conversationId}/messages`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export const getConversationMessages = async (conversationId, page = 1, limit = 50) => {
+  try {
+    const response = await api.get(`/conversations/${conversationId}/messages`, {
+      params: { page, limit }
+    });
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const getUserConversations = async () => {
+  try {
+    const response = await api.get('/conversations');
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
 };

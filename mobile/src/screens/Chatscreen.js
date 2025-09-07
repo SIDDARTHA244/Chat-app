@@ -1,359 +1,441 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  TextInput,
-  FlatList,
   Text,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
   StyleSheet,
+  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
-  TouchableOpacity,
   Alert,
-} from "react-native";
-import API from "../api";
-import socket from "../utils/socket";
+  Keyboard,
+  Image
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import api from '../api';
+import { getCurrentUser } from '../api/auth';
+import socketService from '../utils/socket';
+import MessageItem from '../components/MessageItem';
+import TypingIndicator from '../components/TypingIndicator';
 
-export default function ChatScreen({ route, navigation }) {
-  const { user, partner } = route.params;
+const ChatScreen = ({ route, navigation }) => {
+  const { conversationId, recipientId, recipientName, recipientAvatar } = route.params;
+  
   const [messages, setMessages] = useState([]);
-  const [text, setText] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [partnerTyping, setPartnerTyping] = useState(false);
+  const [newMessage, setNewMessage] = useState('');
+  const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const flatListRef = useRef();
-  const typingTimeout = useRef();
+  const [sending, setSending] = useState(false);
+  const [typingUsers, setTypingUsers] = useState(new Set());
+  const [isRecipientOnline, setIsRecipientOnline] = useState(false);
+  
+  const flatListRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
-    navigation.setOptions({
-      title: partner.name || partner.username,
-    });
-
-    // Fetch existing messages
-    fetchMessages();
-
-    // Join socket room
-    socket.emit("join", user._id);
-
-    // Socket listeners
-    const handleNewMessage = (msg) => {
-      if ((msg.sender === partner._id && msg.receiver === user._id) || 
-          (msg.sender === user._id && msg.receiver === partner._id)) {
-        setMessages((prev) => [...prev, msg]);
-        
-        // Mark message as delivered if we're the receiver
-        if (msg.receiver === user._id) {
-          socket.emit("message:read", { messageIds: [msg._id], userId: user._id });
-        }
-      }
-    };
-
-    const handleTypingStart = (data) => {
-      if (data.userId === partner._id) {
-        setPartnerTyping(true);
-      }
-    };
-
-    const handleTypingStop = (data) => {
-      if (data.userId === partner._id) {
-        setPartnerTyping(false);
-      }
-    };
-
-    const handleMessageRead = (data) => {
-      if (data.readBy === partner._id) {
-        setMessages(prev => prev.map(msg => 
-          msg._id === data.messageId 
-            ? { ...msg, status: 'read' } 
-            : msg
-        ));
-      }
-    };
-
-    socket.on("message:new", handleNewMessage);
-    socket.on("typing:start", handleTypingStart);
-    socket.on("typing:stop", handleTypingStop);
-    socket.on("message:read", handleMessageRead);
-
-    // Cleanup
+    initializeChat();
+    setupSocketListeners();
+    
     return () => {
-      socket.off("message:new", handleNewMessage);
-      socket.off("typing:start", handleTypingStart);
-      socket.off("typing:stop", handleTypingStop);
-      socket.off("message:read", handleMessageRead);
-      
-      // Stop typing if component unmounts
-      if (isTyping) {
-        socket.emit("typing:stop", { userId: user._id, partnerId: partner._id });
+      cleanupSocketListeners();
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
       }
     };
   }, []);
 
-  const fetchMessages = async () => {
+  const initializeChat = async () => {
     try {
-      setLoading(true);
-      // This endpoint needs to be fixed to work with user pairs
-      const res = await API.get(`/conversations/${partner._id}/messages?userId=${user._id}`);
-      setMessages(res.data || []);
-    } catch (err) {
-      console.error("Error fetching messages:", err);
-      // For now, start with empty messages if API fails
-      setMessages([]);
+      const [messagesResponse, userData] = await Promise.all([
+        api.get(`/conversations/${conversationId}/messages`),
+        getCurrentUser()
+      ]);
+      
+      setMessages(messagesResponse.data.messages || []);
+      setCurrentUser(userData);
+      
+      // Join conversation room
+      socketService.joinConversation(conversationId);
+      
+    } catch (error) {
+      console.error('Initialize chat error:', error);
+      Alert.alert('Error', 'Failed to load messages');
     } finally {
       setLoading(false);
     }
   };
 
+  const setupSocketListeners = () => {
+    socketService.on('message:new', handleNewMessage);
+    socketService.on('message:sent', handleMessageSent);
+    socketService.on('message:error', handleMessageError);
+    socketService.on('typing:start', handleTypingStart);
+    socketService.on('typing:stop', handleTypingStop);
+    socketService.on('message:read', handleMessageRead);
+    socketService.on('user:online', handleUserOnline);
+    socketService.on('user:offline', handleUserOffline);
+  };
+
+  const cleanupSocketListeners = () => {
+    socketService.off('message:new', handleNewMessage);
+    socketService.off('message:sent', handleMessageSent);
+    socketService.off('message:error', handleMessageError);
+    socketService.off('typing:start', handleTypingStart);
+    socketService.off('typing:stop', handleTypingStop);
+    socketService.off('message:read', handleMessageRead);
+    socketService.off('user:online', handleUserOnline);
+    socketService.off('user:offline', handleUserOffline);
+  };
+
+  const handleNewMessage = (message) => {
+    setMessages(prev => [...prev, message]);
+    scrollToBottom();
+    
+    // Mark as read if conversation is active
+    markMessagesAsRead([message._id]);
+  };
+
+  const handleMessageSent = (data) => {
+    // Update temporary message with server data
+    setMessages(prev => prev.map(msg => 
+      msg.tempId === data.tempId ? data.message : msg
+    ));
+    setSending(false);
+  };
+
+  const handleMessageError = (error) => {
+    console.error('Message send error:', error);
+    Alert.alert('Error', 'Failed to send message');
+    setSending(false);
+  };
+
+  const handleTypingStart = (data) => {
+    if (data.userId !== currentUser?._id) {
+      setTypingUsers(prev => new Set([...prev, data.userId]));
+    }
+  };
+
+  const handleTypingStop = (data) => {
+    if (data.userId !== currentUser?._id) {
+      setTypingUsers(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(data.userId);
+        return newSet;
+      });
+    }
+  };
+
+  const handleMessageRead = (data) => {
+    setMessages(prev => prev.map(msg => 
+      data.messageIds.includes(msg._id) 
+        ? { ...msg, readBy: [...(msg.readBy || []), { user: data.readBy, readAt: new Date() }] }
+        : msg
+    ));
+  };
+
+  const handleUserOnline = (userId) => {
+    if (userId === recipientId) {
+      setIsRecipientOnline(true);
+    }
+  };
+
+  const handleUserOffline = (userId) => {
+    if (userId === recipientId) {
+      setIsRecipientOnline(false);
+    }
+  };
+
   const sendMessage = () => {
-    const messageText = text.trim();
-    if (!messageText) return;
+    if (!newMessage.trim() || sending) return;
 
-    // Stop typing indicator
-    if (isTyping) {
-      socket.emit("typing:stop", { userId: user._id, partnerId: partner._id });
-      setIsTyping(false);
-    }
-
-    // Send message via socket
-    socket.emit("message:send", {
-      sender: user._id,
-      receiver: partner._id,
-      text: messageText,
-    });
-
-    // Add message to UI immediately (optimistic update)
-    const tempMessage = {
-      _id: Date.now().toString(), // Temporary ID
-      text: messageText,
-      sender: user._id,
-      receiver: partner._id,
-      timestamp: new Date(),
-      status: 'sent'
+    const tempId = Date.now().toString();
+    const messageData = {
+      tempId,
+      text: newMessage.trim(),
+      to: recipientId,
+      conversationId,
+      sender: currentUser?._id,
+      createdAt: new Date(),
+      messageType: 'text'
     };
+
+    // Add temporary message to UI
+    setMessages(prev => [...prev, messageData]);
+    setSending(true);
     
-    setMessages(prev => [...prev, tempMessage]);
-    setText("");
+    // Send via socket
+    socketService.sendMessage(messageData);
+    
+    setNewMessage('');
+    stopTyping();
+    scrollToBottom();
   };
 
-  const handleTextChange = (newText) => {
-    setText(newText);
+  const startTyping = () => {
+    socketService.startTyping(conversationId);
     
-    if (newText.length > 0 && !isTyping) {
-      setIsTyping(true);
-      socket.emit("typing:start", { userId: user._id, partnerId: partner._id });
+    // Auto-stop typing after 3 seconds
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
     }
-    
-    // Clear previous timeout
-    if (typingTimeout.current) {
-      clearTimeout(typingTimeout.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      stopTyping();
+    }, 3000);
+  };
+
+  const stopTyping = () => {
+    socketService.stopTyping(conversationId);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
     }
-    
-    // Set timeout to stop typing after 2 seconds of no input
-    typingTimeout.current = setTimeout(() => {
-      if (isTyping) {
-        setIsTyping(false);
-        socket.emit("typing:stop", { userId: user._id, partnerId: partner._id });
-      }
-    }, 2000);
   };
 
-  const renderMessage = ({ item }) => {
-    const isMyMessage = item.sender === user._id;
-    const messageTime = new Date(item.timestamp || item.createdAt).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-
-    return (
-      <View style={[
-        styles.message,
-        isMyMessage ? styles.myMessage : styles.theirMessage
-      ]}>
-        <Text style={styles.messageText}>{item.text || item.content}</Text>
-        <View style={styles.messageFooter}>
-          <Text style={styles.messageTime}>{messageTime}</Text>
-          {isMyMessage && (
-            <Text style={styles.messageStatus}>
-              {item.status === 'read' ? '✓✓' : item.status === 'delivered' ? '✓' : '⏳'}
-            </Text>
-          )}
-        </View>
-      </View>
-    );
+  const markMessagesAsRead = (messageIds) => {
+    socketService.markAsRead(messageIds, conversationId);
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <Text>Loading messages...</Text>
-      </View>
-    );
-  }
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
+  const renderMessage = ({ item, index }) => (
+    <MessageItem
+      message={item}
+      isCurrentUser={item.sender === currentUser?._id}
+      onLongPress={(message) => {
+        // Handle message long press (copy, delete, etc.)
+        Alert.alert(
+          'Message Options',
+          'What would you like to do?',
+          [
+            { text: 'Copy', onPress: () => console.log('Copy message') },
+            { text: 'Cancel', style: 'cancel' }
+          ]
+        );
+      }}
+    />
+  );
+
+  const renderTypingIndicator = () => {
+    if (typingUsers.size === 0) return null;
+    return <TypingIndicator isVisible={true} userName={recipientName} />;
+  };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      {/* Messages List */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item._id || item.timestamp?.toString()}
-        renderItem={renderMessage}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
-        onLayout={() => flatListRef.current?.scrollToEnd()}
-        style={styles.messagesList}
-        ListEmptyComponent={
-          <View style={styles.center}>
-            <Text style={styles.emptyText}>No messages yet</Text>
-            <Text style={styles.emptySubtext}>Start the conversation!</Text>
-          </View>
-        }
-      />
-
-      {/* Typing Indicator */}
-      {partnerTyping && (
-        <View style={styles.typingContainer}>
-          <Text style={styles.typingText}>
-            {partner.name || partner.username} is typing...
-          </Text>
-        </View>
-      )}
-
-      {/* Input Area */}
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={handleTextChange}
-          placeholder="Type a message..."
-          multiline
-          maxLength={500}
-        />
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
         <TouchableOpacity 
-          style={[styles.sendButton, !text.trim() && styles.sendButtonDisabled]}
-          onPress={sendMessage}
-          disabled={!text.trim()}
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
         >
-          <Text style={styles.sendButtonText}>Send</Text>
+          <Ionicons name="arrow-back" size={24} color="#007AFF" />
+        </TouchableOpacity>
+        
+        <View style={styles.headerCenter}>
+          <View style={styles.avatarContainer}>
+            {recipientAvatar ? (
+              <Image source={{ uri: recipientAvatar }} style={styles.headerAvatar} />
+            ) : (
+              <View style={[styles.headerAvatar, styles.defaultHeaderAvatar]}>
+                <Text style={styles.headerAvatarText}>
+                  {recipientName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            {isRecipientOnline && <View style={styles.onlineIndicator} />}
+          </View>
+          
+          <View style={styles.headerInfo}>
+            <Text style={styles.headerName}>{recipientName}</Text>
+            <Text style={[styles.headerStatus, { color: isRecipientOnline ? '#4CAF50' : '#999' }]}>
+              {isRecipientOnline ? 'Online' : 'Offline'}
+            </Text>
+          </View>
+        </View>
+        
+        <TouchableOpacity style={styles.headerButton}>
+          <Ionicons name="call" size={20} color="#007AFF" />
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+
+      <KeyboardAvoidingView 
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+      >
+        {/* Messages */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item, index) => item._id || item.tempId || index.toString()}
+          style={styles.messagesList}
+          contentContainerStyle={styles.messagesContent}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={scrollToBottom}
+          ListFooterComponent={renderTypingIndicator}
+        />
+
+        {/* Input */}
+        <View style={styles.inputContainer}>
+          <View style={styles.inputWrapper}>
+            <TextInput
+              style={styles.textInput}
+              value={newMessage}
+              onChangeText={(text) => {
+                setNewMessage(text);
+                if (text.length > 0 && !typingTimeoutRef.current) {
+                  startTyping();
+                }
+              }}
+              onBlur={stopTyping}
+              placeholder="Type a message..."
+              placeholderTextColor="#999"
+              multiline
+              maxLength={1000}
+            />
+            
+            <TouchableOpacity
+              style={[styles.sendButton, (!newMessage.trim() || sending) && styles.sendButtonDisabled]}
+              onPress={sendMessage}
+              disabled={!newMessage.trim() || sending}
+            >
+              <Ionicons 
+                name={sending ? "hourglass" : "send"} 
+                size={20} 
+                color="#FFFFFF" 
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: '#F2F2F7',
   },
-  center: {
+  header: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5EA',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  backButton: {
+    padding: 4,
+    marginRight: 8,
+  },
+  headerCenter: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  headerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  defaultHeaderAvatar: {
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  onlineIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#4CAF50',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  headerInfo: {
+    flex: 1,
+  },
+  headerName: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#000',
+  },
+  headerStatus: {
+    fontSize: 12,
+    marginTop: 1,
+  },
+  headerButton: {
+    padding: 8,
+  },
+  keyboardView: {
+    flex: 1,
   },
   messagesList: {
     flex: 1,
-    paddingHorizontal: 16,
   },
-  message: {
-    marginVertical: 4,
-    padding: 12,
-    borderRadius: 16,
-    maxWidth: "80%",
-  },
-  myMessage: {
-    backgroundColor: "#007AFF",
-    alignSelf: "flex-end",
-    borderBottomRightRadius: 4,
-  },
-  theirMessage: {
-    backgroundColor: "#fff",
-    alignSelf: "flex-start",
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  messageText: {
-    fontSize: 16,
-    color: "#fff",
-    marginBottom: 4,
-  },
-  messageFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  messageTime: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.7)",
-  },
-  messageStatus: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.7)",
-    marginLeft: 8,
-  },
-  typingContainer: {
-    paddingHorizontal: 16,
+  messagesContent: {
     paddingVertical: 8,
-    backgroundColor: "#fff",
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-  },
-  typingText: {
-    fontStyle: "italic",
-    color: "#666",
-    fontSize: 14,
   },
   inputContainer: {
-    flexDirection: "row",
-    padding: 16,
-    backgroundColor: "#fff",
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-    alignItems: "flex-end",
+    borderTopColor: '#E5E5EA',
   },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#ddd",
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    backgroundColor: '#F2F2F7',
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    marginRight: 8,
-    fontSize: 16,
     maxHeight: 100,
   },
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#000',
+    maxHeight: 80,
+    minHeight: 20,
+  },
   sendButton: {
-    backgroundColor: "#007AFF",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+    backgroundColor: '#007AFF',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
   },
   sendButtonDisabled: {
-    backgroundColor: "#ccc",
-  },
-  sendButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 16,
-  },
-  emptyText: {
-    fontSize: 18,
-    color: "#666",
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: "#999",
+    backgroundColor: '#C7C7CC',
   },
 });
 
-// Update their message text color
-StyleSheet.flatten([
-  styles.theirMessage,
-  {
-    color: "#333",
-  }
-]);
+export default ChatScreen;

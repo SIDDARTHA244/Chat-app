@@ -9,24 +9,34 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@expo/metro-config": "0.17.4",
+    "@expo/metro-config": "~0.20.0",
+    "@expo/metro-runtime": "~5.0.4",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@react-native-community/masked-view": "^0.1.11",
     "@react-navigation/native": "^7.1.17",
     "@react-navigation/native-stack": "^7.3.26",
     "axios": "^1.11.0",
     "expo": "^53.0.22",
+    "expo-status-bar": "~2.2.3",
     "react": "^19.0.0",
-    "react-native": "^0.79.0",
-    "react-native-gesture-handler": "^2.28.0",
-    "react-native-reanimated": "^4.1.0",
-    "react-native-safe-area-context": "^5.6.1",
-    "react-native-screens": "^4.16.0",
-    "socket.io-client": "^4.7.2"
+    "react-dom": "19.0.0",
+    "react-native": "0.79.5",
+    "react-native-gesture-handler": "~2.24.0",
+    "react-native-get-random-values": "~1.11.0",
+    "react-native-reanimated": "~3.17.4",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-screens": "~4.11.1",
+    "react-native-web": "^0.20.0",
+    "react-native-worklets": "^0.5.0",
+    "react-router-dom": "^7.8.2",
+    "socket.io-client": "^4.7.2",
+    "expo-linear-gradient": "~14.1.5",
+    "expo-image-picker": "~16.1.4"
   },
   "devDependencies": {
     "@expo/cli": "^0.24.21",
     "@types/react": "~19.0.10",
+    "@types/react-native": "^0.72.8",
     "metro": "^0.82.5",
     "typescript": "~5.8.3"
   }

@@ -1,11 +1,28 @@
-import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import api from './index';
 
-const API_URL = "http://localhost:5000";
+export const getAllUsers = async () => {
+  try {
+    const response = await api.get('/users');
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
 
-export const getUsers = async () => {
-  const token = await AsyncStorage.getItem("token");
-  return axios.get(`${API_URL}/users`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export const getUserProfile = async (userId) => {
+  try {
+    const response = await api.get(`/users/${userId}`);
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const updateProfile = async (profileData) => {
+  try {
+    const response = await api.put('/users/profile', profileData);
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
 };
