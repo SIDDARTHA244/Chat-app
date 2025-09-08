@@ -10,11 +10,11 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
-  ScrollView
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { register } from '../api/auth';
+import authAPI from '../api/auth';   // ✅ fixed import
 import socketService from '../utils/socket';
 
 const RegisterScreen = ({ navigation }) => {
@@ -55,20 +55,21 @@ const RegisterScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const response = await register(name, email, password);
-      
+      // ✅ fixed: pass object, not separate params
+      const response = await authAPI.register({ name, email, password });
+
       // Connect to socket
       await socketService.connect();
-      
-      Alert.alert(
-        'Registration Successful', 
-        'Welcome to the chat app!',
-        [{ text: 'OK', onPress: () => navigation.replace('Home') }]
-      );
-      
+
+      Alert.alert('Registration Successful', 'Welcome to the chat app!', [
+        { text: 'OK', onPress: () => navigation.replace('Home') },
+      ]);
     } catch (error) {
       console.error('Registration error:', error);
-      Alert.alert('Registration Failed', error.message || 'Unable to register. Please try again.');
+      Alert.alert(
+        'Registration Failed',
+        error.message || 'Unable to register. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
@@ -76,25 +77,25 @@ const RegisterScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#667eea', '#764ba2']}
-        style={styles.gradient}
-      >
-        <KeyboardAvoidingView 
+      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.gradient}>
+        <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
         >
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.content}>
               {/* Header */}
               <View style={styles.header}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.backButton}
                   onPress={() => navigation.goBack()}
                 >
                   <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
-                
+
                 <View style={styles.logoContainer}>
                   <Ionicons name="person-add" size={50} color="#FFFFFF" />
                 </View>
@@ -106,7 +107,12 @@ const RegisterScreen = ({ navigation }) => {
               <View style={styles.form}>
                 {/* Name Input */}
                 <View style={styles.inputContainer}>
-                  <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <Ionicons
+                    name="person-outline"
+                    size={20}
+                    color="#666"
+                    style={styles.inputIcon}
+                  />
                   <TextInput
                     style={styles.input}
                     placeholder="Full Name"
@@ -119,7 +125,12 @@ const RegisterScreen = ({ navigation }) => {
 
                 {/* Email Input */}
                 <View style={styles.inputContainer}>
-                  <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <Ionicons
+                    name="mail-outline"
+                    size={20}
+                    color="#666"
+                    style={styles.inputIcon}
+                  />
                   <TextInput
                     style={styles.input}
                     placeholder="Email"
@@ -134,7 +145,12 @@ const RegisterScreen = ({ navigation }) => {
 
                 {/* Password Input */}
                 <View style={styles.inputContainer}>
-                  <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={20}
+                    color="#666"
+                    style={styles.inputIcon}
+                  />
                   <TextInput
                     style={[styles.input, styles.passwordInput]}
                     placeholder="Password"
@@ -148,17 +164,22 @@ const RegisterScreen = ({ navigation }) => {
                     style={styles.passwordToggle}
                     onPress={() => setShowPassword(!showPassword)}
                   >
-                    <Ionicons 
-                      name={showPassword ? "eye-outline" : "eye-off-outline"} 
-                      size={20} 
-                      color="#666" 
+                    <Ionicons
+                      name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                      size={20}
+                      color="#666"
                     />
                   </TouchableOpacity>
                 </View>
 
                 {/* Confirm Password Input */}
                 <View style={styles.inputContainer}>
-                  <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={20}
+                    color="#666"
+                    style={styles.inputIcon}
+                  />
                   <TextInput
                     style={[styles.input, styles.passwordInput]}
                     placeholder="Confirm Password"
@@ -171,30 +192,39 @@ const RegisterScreen = ({ navigation }) => {
                     style={styles.passwordToggle}
                     onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                   >
-                    <Ionicons 
-                      name={showConfirmPassword ? "eye-outline" : "eye-off-outline"} 
-                      size={20} 
-                      color="#666" 
+                    <Ionicons
+                      name={
+                        showConfirmPassword ? 'eye-outline' : 'eye-off-outline'
+                      }
+                      size={20}
+                      color="#666"
                     />
                   </TouchableOpacity>
                 </View>
 
                 {/* Register Button */}
                 <TouchableOpacity
-                  style={[styles.registerButton, loading && styles.registerButtonDisabled]}
+                  style={[
+                    styles.registerButton,
+                    loading && styles.registerButtonDisabled,
+                  ]}
                   onPress={handleRegister}
                   disabled={loading}
                 >
                   {loading ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.registerButtonText}>Create Account</Text>
+                    <Text style={styles.registerButtonText}>
+                      Create Account
+                    </Text>
                   )}
                 </TouchableOpacity>
 
                 {/* Login Link */}
                 <View style={styles.loginContainer}>
-                  <Text style={styles.loginText}>Already have an account? </Text>
+                  <Text style={styles.loginText}>
+                    Already have an account?{' '}
+                  </Text>
                   <TouchableOpacity onPress={() => navigation.goBack()}>
                     <Text style={styles.loginLink}>Sign In</Text>
                   </TouchableOpacity>

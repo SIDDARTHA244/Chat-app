@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -33,14 +33,15 @@ const LoginScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const response = await login(email, password);
-      
+      // ✅ pass an object (credentials) to login()
+      const response = await login({ email, password });
+
       // Connect to socket
       await socketService.connect();
-      
+
       // Navigate to main app
       navigation.replace('Home');
-      
+
     } catch (error) {
       console.error('Login error:', error);
       Alert.alert('Login Failed', error.message || 'Unable to login. Please try again.');

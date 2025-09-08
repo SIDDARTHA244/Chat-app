@@ -1,31 +1,27 @@
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// 🚨 YOUR SPECIFIC IP ADDRESS
-const API_BASE_URL = 'http://192.168.1.100:5000';
+// IMPORTANT: Make sure this IP matches your server's actual IP
+// Run 'ipconfig' on Windows to check
+const API_BASE_URL = 'http://192.168.1.103:5000'; // 👈 corrected IP from server logs
 
+// Create axios instance with base configuration
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
+  timeout: 10000, // 10 seconds timeout
   headers: {
     'Content-Type': 'application/json',
-  }
+    'Accept': 'application/json',
+  },
 });
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
-  async (config) => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch (error) {
-      console.error('Token retrieval error:', error);
-    }
+  (config) => {
+    console.log('API Request:', config.method?.toUpperCase(), config.url);
     return config;
   },
   (error) => {
+    console.error('API Request Error:', error);
     return Promise.reject(error);
   }
 );
@@ -33,21 +29,21 @@ api.interceptors.request.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
+    console.log('API Response:', response.status, response.config.url);
     return response;
   },
-  async (error) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
-      // You might want to navigate to login screen here
+  (error) => {
+    console.error('API Response Error:', error.response?.status, error.message);
+
+    if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
+      console.log('Network error detected. Please check:');
+      console.log('1. Server is running on', API_BASE_URL);
+      console.log('2. Your device and computer are on the same WiFi network');
+      console.log('3. Windows Firewall is not blocking port 5000');
+      console.log('4. IP address in mobile app matches your computer IP');
     }
-    
-    return Promise.reject({
-      message: error.response?.data?.error || error.message || 'Network error',
-      status: error.response?.status,
-      data: error.response?.data
-    });
+
+    return Promise.reject(error);
   }
 );
 
